@@ -1,0 +1,525 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-10-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+```{r}
+devtools::load_all("C:/Users/miabe/OneDrive/Desktop/Part III Systems/Project/rnaCrosslinkOO")
+
+```
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("R4RNA")
+```
+
+
+```{r}
+
+# Load the comrades-OO Library ----
+
+#devtools::load_all("/Users/jp/projects/COMRADES/rnaCrosslinkOO")
+
+
+
+library(rnaCrosslinkOO)
+library(pheatmap)
+library(RColorBrewer)
+library(ggplot2)
+library(dplyr)
+
+
+
+# Set up the sample table. ----
+sampleTabler1 = c("fullData/T1_S5.assembled.tstk_comp_Dmel_hyb_hybrids.hyb", "s", "1", "s1")
+sampleTabler2 = c("fullData/T1C_S6.assembled.tstk_comp_Dmel_hyb_hybrids.hyb", "c", "1", "c1")
+sampleTabler3 = c("fullData/T2_S7.assembled.tstk_comp_Dmel_hyb_hybrids.hyb", "c", "2", "c2")
+sampleTabler4 = c("fullData/T2_S7.assembled.tstk_comp_Dmel_hyb_hybrids.hyb", "s", "2", "s2")
+sampleTabler5 = c("fullData/Tr3_S5.assembled.tstk_comp_Dmel_hyb_hybrids.hyb", "s", "3", "s3")
+sampleTabler6 = c("fullData/Tr3-C_S6.assembled.tstk_comp_Dmel_hyb_hybrids.hyb", "c", "3", "c3")
+
+# make the sample table 
+sampleTable2 = rbind.data.frame(sampleTabler1, sampleTabler2,
+                                sampleTabler3, sampleTabler4,
+                                sampleTabler5,sampleTabler6)
+
+
+
+# add the column names 
+colnames(sampleTable2) = c("file", "group", "sample", "sampleName")
+
+
+
+
+#rnaCrosslinkQC(sampleTable2,".")
+
+
+# Choose RNA and set up the object ----
+rna_TE = c("AY180916_AY180916_AY180916_AY180916")
+
+
+
+
+# load the object - Blood TE
+#cdsBlood = rnaCrosslinkDataSet(rnas = rna_TE,
+                               #rnaSize = 0,
+                               #sampleTable =     sampleTable2,
+                               #subset = c(25,80,25,80))
+
+# Check object ----
+#cdsBlood
+#rnaSize(cdsBlood)
+#sampleTable(cdsBlood)
+
+
+# Check Interactions ----
+#x = topTranscripts(cdsBlood,800) #list of RNAs in the data
+#x[x$type == "intra",]
+
+#topInteracters(cdsBlood,30)
+#topInteractions(cdsBlood, 40)
+#featureInfo(cdsBlood)
+
+
+#fInfo = featureInfo(cdsBlood)
+```
+```{r Functions}
+interaction_heatmaps = function(cds_TE, TE_name){
+  fInfo = featureInfo(cds_TE)
+  colors = brewer.pal(name = "BuPu", n=9)
+  #Heatmap of Blood family interactions
+  family_int = fInfo$family[,c("s1","s2","s3")]
+  rownames(family_int) = fInfo$family$ID
+  family_int = family_int[rownames(family_int) %in% c("rRNA", "miRNA", "protein_coding", "ncRNA", "pseudogene", "snoRNA", "snRNA", "tRNA", TE_name),]
+  family_int_log2 = log2(family_int + 1)
+  pheatmap(main = paste(TE_name, "TE interactions with various RNA families"),family_int_log2,  clustering_distance_rows = 'euclidean', cluster_cols = FALSE, clustering_method = 'ward.D2', color = colors, fontsize_row = 7)
+  
+  #adding family names to transcript information
+  cat= rownames(fInfo$transcript)
+  transcript_int<- fInfo$transcript %>%
+    mutate(
+      category = case_when(
+        grepl("miRNA", cat) ~ "miRNA",
+        grepl("protein_coding", cat) ~ "protein_coding",
+        grepl("3S18", cat)~ "3S18",
+        grepl("AY180916", cat)~ "AY180916",
+        grepl("ncRNA", cat)~ "ncRNA",
+        grepl("pseudogene", cat)~ "pseudogene",
+        grepl("rRNA", cat)~ "rRNA",
+        grepl("snoRNA", cat)~ "snoRNA",
+        grepl("snRNA", cat)~ "snRNA",
+        grepl("tRNA", cat)~ "tRNA",
+        grepl("HMSbeagle", cat)~ "HMSbeagle",
+        TRUE ~ "Other"
+      )
+    )
+  transcript_int = transcript_int[,c("s1","s2","s3","category")]
+  
+  RNAs =c("rRNA", "miRNA", "protein_coding", "ncRNA", "pseudogene", "snoRNA", "snRNA", "tRNA")
+  rna_high_ls = list()
+  plot_list = list()
+  for (RNA in RNAs) {
+    
+    rna_int = transcript_int[transcript_int$category == RNA,]
+    rna_int_log2 = log2(rna_int[,c("s1","s2","s3")] + 1)
+    heatmap = pheatmap(main = paste("Interaction of", TE_name, "TE with",RNA),rna_int_log2, color = colors, clustering_method = "ward.D2", show_rownames = FALSE, cutree_rows = 2, fontsize_row = 7)
+    plot_list = append(plot_list, heatmap)
+    rna_int_log2_sum = data.frame(log2_interaction = rowSums(rna_int_log2), row.names = row.names(rna_int_log2))
+    
+    hist= ggplot(rna_int_log2_sum, aes(x=log2_interaction)) + 
+      geom_histogram(binwidth = 1, fill = "skyblue", color = "black")
+    plot_list = append(plot_list, hist)
+
+    rna_co_log2 = rna_int_log2[rna_int_log2_sum > log2(20),]
+    ifelse(nrow(rna_co_log2) > 0,pheatmap(main = paste("Interaction of", TE_name, "TE with",RNA),rna_co_log2, color = colors, clustering_method = "ward.D2"), print(paste(RNA, "has no interactions with", TE_name, "above 20")))
+    rna_high_ls = append(rna_high_ls, list(rna_co_log2))
+  }
+  rna_high_ls = setNames(rna_high_ls,RNAs)
+  #plot_list = append(plot_list, rna_high_ls)
+  plot_list = setNames(plot_list, c(RNAs))
+  return(rna_high_ls)
+}
+
+
+interaction_plots = function(RNA, specific_transcript = "no"){
+  rna_high_df = rna_high_ls[[RNA]]
+  #Forward interactions
+  int = getInteractions(cdsBlood, c(row.names(rna_high_df)))
+  int_sum = int %>%
+    group_by(rna,Position) %>%
+    summarize(total_depth = sum(depth, na.rm=TRUE), .groups ="drop")
+  
+  if(specific_transcript != "no"){
+    int_plot_spec = ggplot(int_sum[int_sum$rna ==specific_transcript,], aes(x=Position, y=total_depth, colour=rna)) + 
+      geom_path() +
+      theme(legend.position = "none") +
+      labs(x = "Position on TE", y="Depth", title = paste("Interaction position of",RNA,"on BLOOD TE")) +
+      geom_vline(data=blood_coord, aes(xintercept=xintercept, color = label), linetype=3)+
+      scale_color_manual(values = c("LTR1" = "violet", "sORF" = "purple", "ORF1" = "darkblue", "Pol" = "darkgreen", "LTR2" = "lightgreen"),name = "TE regions") + 
+      facet_wrap(.~rna,scales="free_y") 
+    
+    return(int_plot_spec)
+
+  } else {
+    #Reverse interactions
+    rint_sum = data.frame()
+    for(RNA_type in row.names(rna_high_df)){
+      rint_current = getReverseInteractions(cdsBlood,RNA_type)
+      rint_current_sum = rint_current %>%
+        group_by(rna, Position) %>%
+        summarize(total_depth = sum(depth, na.rm= TRUE), .groups="drop")
+      rint_sum = bind_rows(rint_sum,rint_current_sum)}
+      
+    #Plot interactions
+    int_plot = ggplot(int_sum, aes(x=Position, y=total_depth, colour=rna)) + 
+      geom_path() +
+      theme(legend.position = "none") +
+      labs(x = "Position on TE", y="Depth", title = paste("Interaction position of",RNA,"on BLOOD TE")) +
+      geom_vline(data=blood_coord, aes(xintercept=xintercept, color = label), linetype=3) +
+      scale_color_manual(values = c("LTR1" = "violet", "sORF" = "purple", "ORF1" = "darkblue", "Pol" = "darkgreen", "LTR2" = "green"),name = "TE regions") +
+      facet_wrap(.~rna,scales="free_y") 
+  
+    rint_plot = ggplot(rint_sum, aes(x=Position, y=total_depth, colour=rna)) + 
+      geom_path() +
+      theme(legend.position = "none") + 
+      labs(x =paste("Position on",RNA), y="Depth", title =paste("Interaction position of BLOOD TE on",RNA)) +
+      facet_wrap(.~rna,scales="free_y")
+    return(list(interaction = int_plot,unique(int_sum$rna),reverse_interactions = rint_plot,unique(rint_sum$rna)))}
+  }
+
+
+```
+
+
+```{r Blood }
+
+TE_name = "Blood"
+
+# load the object - Blood TE
+cdsBlood = rnaCrosslinkDataSet(rnas = rna_TE,
+                               rnaSize = 0,
+                               sampleTable =     sampleTable2)
+
+
+rna_high_ls = interaction_heatmaps(cdsBlood, "Blood")
+
+
+
+
+
+
+```
+
+
+```{r}
+
+devtools::load_all("C:/Users/miabe/OneDrive/Desktop/Part III Systems/Project/rnaCrosslinkOO")
+
+
+plotInteractions(cdsBlood, rna_TE, "FBtr0091925_FBgn0065048_54Aa_snoRNA", b="max", d="max")
+
+rna_high_ls
+                                  
+blood_coord = data.frame(xintercept = c(0,400,966,1271,1863,3166,3749,6733,7010,7410),label=c("LTR1","LTR1","sORF", "sORF","ORF1", "ORF1","Pol", "Pol", "LTR2", "LTR2"))
+ 
+
+interaction_plots("snoRNA")
+
+
+```
+
+
+
+
+```{r extra code}
+# Full code for plotting interactions
+
+#snoRNA_high$length = c(140,68,82,81,210,148,140,215,220,164,154,145,211,151,89,136,152,150,140,139,139,142,145,144,148,75,106,108,109,79,83,81,91,89,74,136)
+
+#snRNA_high$length=c(123,192,110,131,164,164,97,192,127,192,126,142,191,127,192,127,143, 164,164,164,107,107,107,192,444,71,275,116)
+
+
+#getinteractions
+snoRNA_int = getInteractions(cdsBlood, c(row.names(snoRNA_high)))
+
+snoRNA_int_sum = snoRNA_int %>%
+  group_by(rna,Position) %>%
+  summarize(total_depth = sum(depth, na.rm=TRUE), .groups ="drop")
+
+  
+snoRNA_int_sum
+
+ggplot(snoRNA_int_sum, aes(x=Position, y=total_depth, colour=rna)) + 
+  geom_path() +
+  theme(legend.position = "none")
+
+
+
+snoRNA_rint =getReverseInteractions(cdsBlood, "FBtr0091925_FBgn0065048_54Aa_snoRNA")
+
+snoRNA_rint_sum = snoRNA_rint %>%
+  group_by(rna, Position) %>%
+  summarize(total_depth = sum(depth), .groups="drop")
+
+
+snoRNA_rint_sum
+
+snoRNA_rint = data.frame(rna = character(), Position = numeric(), total_depth = numeric())
+                         
+for(snoRNA in row.names(snoRNA_high)){
+  snoRNA_rint_current = getReverseInteractions(cdsBlood,snoRNA)
+  #print(snoRNA_rint_current)
+  snoRNA_rint_current_sum = snoRNA_rint_current %>%
+    group_by(rna, Position) %>%
+    summarize(total_depth = sum(depth, na.rm= TRUE), .groups="drop")
+  #print(snoRNA_rint_current_sum)
+  if(nrow(snoRNA_rint_current_sum) >0){
+    snoRNA_rint = bind_rows(snoRNA_rint,snoRNA_rint_current_sum)
+    }
+}
+
+
+snoRNA_int_filt = snoRNA_int_sum[snoRNA_int_sum$total_depth >3,]
+list= unique(snoRNA_int_filt$rna)
+snoRNA_int_filt2 = snoRNA_int_sum[snoRNA_int_sum$rna %in% list,]
+
+
+
+ggplot(snoRNA_int_sum, aes(x=Position, y=total_depth, colour=rna)) + 
+  geom_path() +
+  theme(legend.position = "none") +
+  labs(x = "Position on TE", y="Depth", title ="Interaction position of snoRNA on BLOOD TE ")+
+  facet_wrap(.~rna,scales="free_y") 
+
+
+snoRNA_high
+ggplot(snoRNA_rint, aes(x=Position, y=total_depth, colour=rna)) + 
+  geom_path() +
+  theme(legend.position = "none") + 
+  labs(x = "Position on snoRNA", y="Depth", title ="Interaction position of BLOOD TE on snoRNA") +
+  facet_wrap(.~rna,scales="free_y") 
+
+```
+
+
+snoRNA_high
+#Im gonna start with snoRNAs
+for(snoRNA in row.names(snoRNA_high)){
+ plotInteractions(cds =cdsBlood, rna = rna_TE, interactor = FBtr0072259_FBgn0026169_Psi18S-1820_snoRNA, a = 1,b="max",c=1, d="max")
+}
+
+
+plotInteractions(cds=cdsBlood, rna=rna_TE, interactor="FBtr0072259_FBgn0026169_Psi18S-1820_snoRNA", a=1,b=200,c=1,d=140)
+
+
+
+
+for(snoRNA in 1:nrow(snoRNA_high)){
+  
+}
+```
+
+
+#transcripts - heatmap of different RNA families - multiRNA heatmap, using plotinteractions
+#or getInteractions
+
+
+
+
+
+###Making a heatmap of the different RNA families
+#Starting with coding RNA
+codingRNA_int = fInfo$transcript[grep("protein_coding", rownames(fInfo$transcript)),]
+codingRNA_int
+codingRNA_int_norm = log2(codingRNA_int +1)
+
+
+
+#pheatmap(main = "Blood TE interactions with protein-coding RNA transcripts",codingRNA_int_norm, show_rownames = FALSE,  clustering_distance_rows = 'euclidean', clustering_distance_cols = 'euclidean', clustering_method = 'ward.D2', color = colors)
+
+fInfo$family
+#miRNA
+miRNA_int = fInfo$transcript[grep("miRNA", rownames(fInfo$transcript), ignore.case = TRUE),]
+
+
+
+#creating a metadatatable
+
+
+
+
+#Making a heatmap of all the transcripts
+cdsBlood_cat = cdsBlood_cat[apply(cdsBlood_cat >1, 1, any),]
+cdsBlood_meta = data.frame(category = cdsBlood_cat$category)
+row.names(cdsBlood_meta) = rownames(cdsBlood_cat)
+
+cdsBlood_log2 = log2(cdsBlood_cat[,-7] +1)
+
+
+cdsBlood_log2_2
+
+
+#pheatmap(cdsBlood_log2, show_rownames = FALSE, annotation_row = cdsBlood_meta)
+
+
+#All the none protein coding transcripts
+cdsBlood_cat_npc = cdsBlood_cat[cdsBlood_cat$category != "protein_coding",]
+cdsBlood_meta_npc = data.frame(category = cdsBlood_cat_npc$category)
+row.names(cdsBlood_meta_npc) = rownames(cdsBlood_cat_npc)
+
+cdsBlood_log2_npc = log2(cdsBlood_cat_npc[,-7] +1)
+cdsBlood
+#pheatmap(cdsBlood_log2_npc, show_rownames = FALSE, annotation_row = cdsBlood_meta, color = colors, cutree_rows = 3, clustering_method = "ward.D2")
+
+
+
+#Clustering and then extracting the highly expressed ones
+cdsBlood_clust = hclust(dist(cdsBlood_log2_npc), method = "ward.D2")
+cdsBlood_int = cutree(tree=cdsBlood_clust, k=3, h=NULL)
+cdsBlood_int = data.frame(cluster =ifelse(test = cdsBlood_int ==1, ifelse(test = cdsBlood_int ==2, yes = "low interaction", no= "medium interaction"), yes = "high interaction"))
+
+row_int = rownames(cdsBlood_int)
+cdsBlood_int<- cdsBlood_int %>%
+  mutate(
+    category = case_when(
+      grepl("miRNA", row_int) ~ "miRNA",
+      grepl("protein_coding", row_int) ~ "protein_coding",
+      grepl("3S18", row_int)~ "3S18",
+      grepl("AY180916", row_int)~ "AY180916",
+      grepl("ncRNA", row_int)~ "ncRNA",
+      grepl("pseudogene", row_int)~ "pseudogene",
+      grepl("rRNA", row_int)~ "rRNA",
+      grepl("snoRNA", row_int)~ "snoRNA",
+      grepl("snRNA", row_int)~ "snRNA",
+      grepl("tRNA", row_int)~ "tRNA",
+      grepl("HMSbeagle", row_int)~ "HMSbeagle",
+      TRUE ~ "Other"
+    )
+  )
+
+cdsBlood_high_int
+cdsBlood_medium_int
+
+
+#Plots!
+pheatmap(main = "Blood TE interactions with protein-coding RNA transcripts",codingRNA_int_norm, show_rownames = FALSE,  clustering_distance_rows = 'euclidean', clustering_distance_cols = 'euclidean', clustering_method = 'ward.D2', color = colors)
+
+pheatmap(cdsBlood_log2_npc, show_rownames = FALSE, annotation_row = cdsBlood_meta, color = colors, cutree_rows = 3, clustering_method = "ward.D2",main = "Blood TE level of interaction with other non-coding RNAs")
+ggplot(data=cdsBlood_int, aes(x=cluster, fill= category))+
+  geom_bar(position="dodge") + 
+  labs(title = "Blood TE cluster in three levels of interaction with different types of RNAs")
+
+
+
+
+#Heatmap of families
+
+#remove controls, other TEs
+
+```
+
+
+```{r}
+plotInteractions(cdsBlood, rna=rna, interactor = )
+fInfo
+```
+
+```{r}
+
+pdf("./figures/featureStats/reads_per_family_Blood_interations.pdf", height = 5, width = 5)
+familyDF = fInfo$transcript[,c(1,3,5)]
+familyDF = familyDF[order(rowSums(familyDF),decreasing = T),]
+familyDF = familyDF[1:60,]
+familyDF$ID = row.names(familyDF)
+familyDF = familyDF[!duplicated(familyDF$ID),]
+familyDF = melt(familyDF, id.vars = "ID")
+ggplot(familyDF[!(familyDF$ID %in% c("HMSbeagle","3S18")),]) +
+  geom_bar(aes(x = ID, y = log(value), fill = variable),
+           stat = "identity",
+           position = "stack")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+dev.off()
+
+
+pdf("./figures/featureStats/reads_per_family_Blood_interations.pdf", height = 5, width = 5)
+familyDF = melt(fInfo$family[,c(1,2,4,6)])
+ggplot(familyDF[!(familyDF$ID %in% c("HMSbeagle","3S18")) & familyDF$ID != "miRNA",]) +
+  geom_bar(aes(x = ID, y = log2(value), fill = variable),
+           stat = "identity",
+           position = "stack")+
+  theme_classic()+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+dev.off()
+
+
+
+
+
+
+
+
+# Clustering ----
+
+clusteredCds = clusterrnaCrosslink(cds = cdsBlood,
+                                   cores = 5,
+                                   stepCount = 2,
+                                   clusterCutoff = 4)
+
+
+
+
+
+
+# Cluster Trimming ----
+trimmedClusters = trimClusters(clusteredCds = clusteredCds,
+                               trimFactor = 2, 
+                               clusterCutoff = 0)
+
+
+
+
+
+
+plotMatricesAverage(cds = trimmedClusters,
+                    type2 = "noHost",
+                    type1 = "trimmedClusters",
+                    directory = "./",
+                    a = 1,
+                    b = rnaSize(trimmedClusters),
+                    c = 1,
+                    d = rnaSize(trimmedClusters),
+                    h = 5)
+
+
+plotMatricesAverage(cds = trimmedClusters,
+                    type2 = "trimmedClusters",
+                    type1 = "trimmedClusters",
+                    directory = "./",
+                    a = 1,
+                    b = rnaSize(trimmedClusters),
+                    c = 1,
+                    d = rnaSize(trimmedClusters),
+                    h = 5)
+
+
+
+
+
+
+
+```
+
+
+
+```{r}
+cdsBlood@InputFiles$all$all
+```
+
